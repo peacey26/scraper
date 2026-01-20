@@ -6,7 +6,7 @@ import sys
 # KÖRNYEZETI VÁLTOZÓK
 TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
-SEEN_FILE = "seen_ads_v3.txt"
+SEEN_FILE = "seen_ads_v2.txt"
 
 # A HardverApró Mac Mini oldala
 URL = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
