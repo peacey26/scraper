@@ -11,8 +11,15 @@ SEEN_FILE = "seen_ads.txt"
 # A HardverApró Mac Mini oldala
 URL = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
 
+# FRISSÍTETT ÁLCÁZÁS (Hogy igazi Mac-nek tűnjön)
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Referer": "https://hardverapro.hu/"
 }
 
 def send_telegram(message):
@@ -42,14 +49,22 @@ def scrape():
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
+        # DEBUG: Írjuk ki az oldal címét, hogy lássuk, nem-e blokkoltak
+        page_title = soup.title.get_text().strip() if soup.title else "Nincs cím"
+        print(f"Az oldal címe amit látok: {page_title}")
+
         # A hirdetések listája (li elemek 'media' osztállyal)
         ads = soup.find_all('li', class_='media')
+        print(f"Talált hirdetések száma: {len(ads)}")
 
+        if len(ads) == 0:
+            print("!!! NEM TALÁLTAM HIRDETÉST. LEHET HOGY BLOKKOLTAK? !!!")
+            # Kiírjuk az oldal elejét, hogy lássuk mi ez
+            print("Az oldal eleje:\n", response.text[:500])
+        
         new_count = 0
         
-        # Végigmegyünk a hirdetéseken
         for ad in ads:
-            # Cím és Link keresése (általában a 'uad-title' osztályban van a link)
             title_element = ad.find('div', class_='uad-title')
             if not title_element: continue
             
@@ -58,30 +73,25 @@ def scrape():
 
             title = link_tag.get_text().strip()
             link = link_tag['href']
-            
-            # A link relatív (pl. /apro/...), ezért elé kell tenni a domaint
             full_link = f"https://hardverapro.hu{link}"
 
-            # Ár keresése
             price_div = ad.find('div', class_='uad-price')
             price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-            # ELLENŐRZÉS: Láttuk már ezt a linket?
             if full_link in seen_ads:
-                continue # Ha igen, ugorjunk a következőre
+                continue 
             
-            # Ha nem láttuk, küldés és mentés
             print(f"Új hirdetés: {title}")
             msg = f"🍎 Új Mac Mini hirdetés!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
             send_telegram(msg)
             
             save_seen_ad(full_link)
-            seen_ads.add(full_link) # Hozzáadjuk a memóriához a futás idejére is
+            seen_ads.add(full_link)
             new_count += 1
 
-        if new_count == 0:
-            print("Nem volt új hirdetés.")
-        else:
+        if new_count == 0 and len(ads) > 0:
+            print("Nem volt új hirdetés (már mindet láttuk).")
+        elif new_count > 0:
             print(f"{new_count} új hirdetés elküldve.")
 
     except Exception as e:
