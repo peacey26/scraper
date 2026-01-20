@@ -1,0 +1,38 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2822
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 name: Web Scraper\
+\
+on:\
+  schedule:\
+    # Ez mondja meg, milyen gyakran fusson. \
+    # A p\'e9ld\'e1ban: Minden \'f3r\'e1ban egyszer (a 0. percben).\
+    # Ha s\uc0\u369 r\u369 bben kell, pl 15 percenk\'e9nt: '*/15 * * * *'\
+    - cron: '0 * * * *'\
+  \
+  # Ez gombot ad, hogy k\'e9zzel is el tudd ind\'edtani tesztel\'e9shez\
+  workflow_dispatch:\
+\
+jobs:\
+  scrape:\
+    runs-on: ubuntu-latest\
+\
+    steps:\
+      - name: K\'f3d let\'f6lt\'e9se (Checkout)\
+        uses: actions/checkout@v3\
+\
+      - name: Python be\'e1ll\'edt\'e1sa\
+        uses: actions/setup-python@v4\
+        with:\
+          python-version: '3.9'\
+\
+      - name: Csomagok telep\'edt\'e9se\
+        run: |\
+          pip install -r requirements.txt\
+\
+      - name: Scraper futtat\'e1sa\
+        run: python scraper.py}
