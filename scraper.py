@@ -3,99 +3,97 @@ from bs4 import BeautifulSoup
 import os
 import sys
 
-# KÖRNYEZETI VÁLTOZÓK
+# --- BEÁLLÍTÁSOK ---
 TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
-SEEN_FILE = "seen_ads_v2.txt"
-
-# A HardverApró Mac Mini oldala
+SEEN_FILE = "seen_ads_v3.txt" # Új verzió, tiszta lappal!
 URL = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
 
-# FRISSÍTETT ÁLCÁZÁS (Hogy igazi Mac-nek tűnjön)
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Referer": "https://hardverapro.hu/"
 }
 
 def send_telegram(message):
+    print(f"Üzenet küldése Telegramra: {message[:20]}...")
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
     try:
-        requests.post(url, json=payload)
+        r = requests.post(url, json=payload)
+        if r.status_code == 200:
+            print("✅ Telegram üzenet elküldve!")
+        else:
+            print(f"❌ Telegram hiba: {r.text}")
     except Exception as e:
-        print(f"Hiba üzenetküldéskor: {e}")
-
-def load_seen_ads():
-    if not os.path.exists(SEEN_FILE):
-        return set()
-    with open(SEEN_FILE, "r") as f:
-        return set(line.strip() for line in f)
-
-def save_seen_ad(ad_url):
-    with open(SEEN_FILE, "a") as f:
-        f.write(ad_url + "\n")
+        print(f"❌ Hiba a küldésnél: {e}")
 
 def scrape():
-    print("HardverApró figyelése...")
-    seen_ads = load_seen_ads()
+    print("--- DIAGNOSZTIKA INDÍTÁSA ---")
     
+    # 1. TESZT: Telegram teszt (hogy kizárjuk a bot hibát)
+    # Ezt az első futásnál küldi, csak hogy lássuk, működik-e a "cső".
+    # Ha ez megjön, akkor a bot jó, és a scraping a rossz.
+    # send_telegram("🤖 HardverApró Bot: Teszt üzenet - A rendszer él!")
+
     try:
         response = requests.get(URL, headers=HEADERS)
-        response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
-
-        # DEBUG: Írjuk ki az oldal címét, hogy lássuk, nem-e blokkoltak
-        page_title = soup.title.get_text().strip() if soup.title else "Nincs cím"
-        print(f"Az oldal címe amit látok: {page_title}")
-
-        # A hirdetések listája (li elemek 'media' osztállyal)
+        
         ads = soup.find_all('li', class_='media')
-        print(f"Talált hirdetések száma: {len(ads)}")
+        print(f"Talált hirdetés blokkok száma: {len(ads)}")
 
         if len(ads) == 0:
-            print("!!! NEM TALÁLTAM HIRDETÉST. LEHET HOGY BLOKKOLTAK? !!!")
-            # Kiírjuk az oldal elejét, hogy lássuk mi ez
-            print("Az oldal eleje:\n", response.text[:500])
-        
+            print("VÉGZETES HIBA: Nem találok hirdetéseket. Az oldal tartalma:")
+            print(soup.prettify()[:1000]) # Kiírjuk az oldal elejét
+            return
+
+        # 2. TESZT: Nézzük meg az ELSŐ hirdetés belsejét!
+        print("\n--- ELSŐ HIRDETÉS ELYMZÉSE ---")
+        first_ad = ads[0]
+        print(first_ad.prettify()) # EZ A LÉNYEG! Ebből látjuk a struktúrát.
+        print("------------------------------\n")
+
         new_count = 0
         
-        for ad in ads:
+        for i, ad in enumerate(ads):
+            # Próbáljuk megkeresni a címet többféle módon
             title_element = ad.find('div', class_='uad-title')
-            if not title_element: continue
+            
+            if not title_element:
+                # HA HIBA VAN: Kiírjuk, hanyadiknál hasalt el
+                if i < 3: print(f"⚠️ {i+1}. hirdetés: Nem találom a 'uad-title' div-et!")
+                continue
             
             link_tag = title_element.find('a')
-            if not link_tag: continue
+            if not link_tag:
+                if i < 3: print(f"⚠️ {i+1}. hirdetés: Megvan a div, de nincs benne 'a' (link)!")
+                continue
 
             title = link_tag.get_text().strip()
             link = link_tag['href']
             full_link = f"https://hardverapro.hu{link}"
-
+            
+            # Ár keresése
             price_div = ad.find('div', class_='uad-price')
             price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-            if full_link in seen_ads:
-                continue 
-            
-            print(f"Új hirdetés: {title}")
-            msg = f"🍎 Új Mac Mini hirdetés!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
-            send_telegram(msg)
-            
-            save_seen_ad(full_link)
-            seen_ads.add(full_link)
-            new_count += 1
+            # Ha idáig eljut, akkor SIKERES az olvasás
+            if i < 3: print(f"✅ {i+1}. hirdetés feldolgozva: {title} ({price})")
 
-        if new_count == 0 and len(ads) > 0:
-            print("Nem volt új hirdetés (már mindet láttuk).")
-        elif new_count > 0:
-            print(f"{new_count} új hirdetés elküldve.")
+            # Küldés (most fájl ellenőrzés nélkül, hogy biztosan jöjjön)
+            # Csak az első 3-at küldjük el tesztnek, hogy ne spammeljen szét
+            if new_count < 3:
+                msg = f"🔍 DIAGNOSZTIKA:\n{title}\n{price}\n{full_link}"
+                send_telegram(msg)
+                new_count += 1
+
+        print(f"\nÖsszesen {new_count} üzenet elküldve a teszt során.")
 
     except Exception as e:
-        print(f"Hiba történt: {e}")
+        print(f"KRITIKUS HIBA: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
