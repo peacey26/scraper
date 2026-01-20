@@ -2,7 +2,7 @@ name: Hardverapro Watcher
 
 on:
   schedule:
-    - cron: '*/30 * * * *' # 30 percenként fut
+    - cron: '*/10 * * * *' # 10 percenként fut
   workflow_dispatch:
 
 permissions:
