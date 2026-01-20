@@ -33,4 +33,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: "Update seen ads list"
-          file_pattern: seen_ads.txt
+          file_pattern: seen_ads_v2.txt
