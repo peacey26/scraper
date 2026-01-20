@@ -1,45 +1,53 @@
-{\rtf1\ansi\ansicpg1252\cocoartf2822
-\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
-{\colortbl;\red255\green255\blue255;}
-{\*\expandedcolortbl;;}
-\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
-\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+import requests
+from bs4 import BeautifulSoup
+import os
+import sys
 
-\f0\fs24 \cf0 import requests\
-from bs4 import BeautifulSoup\
-import os\
-\
-# 1. A weboldal c\'edme, amit figyelni akarsz\
-URL = "https://www.arukereso.hu/..." # IDE \'cdRD A LINKET\
-\
-# 2. Fejl\'e9c, hogy b\'f6ng\'e9sz\uc0\u337 nek higgyen minket az oldal (fontos!)\
-HEADERS = \{\
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"\
-\}\
-\
-def check_price():\
-    try:\
-        response = requests.get(URL, headers=HEADERS)\
-        response.raise_for_status() # Hiba, ha nem t\'f6lt be\
-        \
-        soup = BeautifulSoup(response.content, 'html.parser')\
-\
-        # 3. ITT KELL MEGTAL\'c1LNI AZ ELEMET\
-        # P\'e9lda: Megkeress\'fck az \'e1rat tartalmaz\'f3 DIV-et vagy SPAN-t.\
-        # Ezt az oldalon jobb klikk -> Vizsg\'e1lat (Inspect) m\'f3dban l\'e1tod.\
-        # Itt egy p\'e9lda, mintha egy H1-et keresn\'e9nk:\
-        product_name = soup.find('h1').get_text().strip()\
-        \
-        # P\'e9lda \'e1r keres\'e9sre (ez oldalank\'e9nt v\'e1ltozik!):\
-        # price_element = soup.find('span', class_='price-tag').get_text()\
-        \
-        print(f"Siker! A term\'e9k neve: \{product_name\}")\
-        \
-        # 4. \'c9rtes\'edt\'e9s k\'fcld\'e9se (ezt k\'e9s\uc0\u337 bb \'e1ll\'edtjuk be pontosan)\
-        # Ha v\'e1ltoz\'e1st \'e9szlel, itt k\'fcldhet emailt vagy Telegram \'fczenetet.\
-        \
-    except Exception as e:\
-        print(f"Hiba t\'f6rt\'e9nt: \{e\}")\
-\
-if __name__ == "__main__":\
-    check_price()}
+# KÖRNYEZETI VÁLTOZÓK BETÖLTÉSE (GitHub Secrets-ből)
+TOKEN = os.environ['TELEGRAM_TOKEN']
+CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
+
+# EZT A LINKET ÍRD ÁT ARRA, AMIT FIGYELNI AKARSZ:
+URL = "https://www.arukereso.hu/videokartya-c3142/asus/geforce-rtx-3060-12gb-gddr6-192bit-dual-rtx3060-o12g-v2-p663414923/"
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+}
+
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message
+    }
+    try:
+        requests.post(url, json=payload)
+    except Exception as e:
+        print(f"Hiba az üzenet küldésekor: {e}")
+
+def scrape():
+    print(f"Lekérdezés indítása: {URL}")
+    try:
+        response = requests.get(URL, headers=HEADERS)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        # --- ITT KELL MEGADNI MIT KERESÜNK ---
+        # Árukereső példa: Az ár általában a "price" osztályban van, vagy az xl-price-ban.
+        # Jobb klikk az áron a böngészőben -> Vizsgálat -> nézd meg a class nevét.
+        
+        # Ez egy általános keresés az oldal címére (tesztnek):
+        title = soup.find('h1').get_text().strip()
+        print(f"Találat: {title}")
+        
+        # Üzenet küldése
+        send_telegram_message(f"🔔 A Scraper lefutott!\nTermék: {title}\nLink: {URL}")
+        
+    except Exception as e:
+        print(f"Hiba történt: {e}")
+        send_telegram_message(f"⚠️ Hiba a scraperben: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    scrape()
