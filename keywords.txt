@@ -1,6 +1,6 @@
 [HARDVERAPRO]
 mac mini
-BD-JB
+
 
 [MENEMSZOL]
 virus
