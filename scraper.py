@@ -15,8 +15,9 @@ SEEN_FILE = "seen_ads.txt"
 KEYWORDS_FILE = "keywords.txt"
 
 # URL-ek
-# A HardverApró alap kereső URL-je (ehhez fűzzük hozzá a kulcsszót)
+# HardverApró kereső alap link (ehhez adjuk a kulcsszót)
 URL_HA_SEARCH_BASE = "https://hardverapro.hu/aprok/keres.php?order=1&stext="
+# Menemszol lista oldal
 URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
 
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
@@ -77,6 +78,7 @@ def load_keywords_by_site():
                 if current_section in keywords:
                     keywords[current_section].append(line.lower())
         
+        # Ha valamelyik üres maradt, töltsük fel az alappal
         if not keywords["hardverapro"]: keywords["hardverapro"] = defaults["hardverapro"]
         if not keywords["menemszol"]: keywords["menemszol"] = defaults["menemszol"]
             
@@ -98,11 +100,11 @@ def scrape_hardverapro(seen_ads, keywords):
         "Referer": "https://hardverapro.hu/"
     }
 
-    # Ciklus a kulcsszavakon
+    # Végigmegyünk a HardverAprós kulcsszavakon
     for keyword in keywords:
         print(f"🔎 Keresés erre: {keyword}...")
         
-        # URL összerakása: keresés + időrendi rendezés (order=1)
+        # URL összerakása: keresés + időrendi rendezés
         search_url = f"{URL_HA_SEARCH_BASE}{keyword}"
         
         try:
@@ -126,8 +128,8 @@ def scrape_hardverapro(seen_ads, keywords):
                 price_div = ad.find('div', class_='uad-price')
                 price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-                # Itt már nem kell extra kulcsszó szűrés, mert maga a kereső szűrt.
-                # De duplikáció szűrés kell.
+                # Itt már nem kell szűrni a címre, mert a kereső elvégezte.
+                # Csak azt nézzük, láttuk-e már.
                 if full_link in seen_ads: continue 
                 
                 print(f"Új HA találat: {title}")
@@ -139,14 +141,12 @@ def scrape_hardverapro(seen_ads, keywords):
                 new_count += 1
             
             print(f"  -> {new_count} új találat ennél a szónál.")
-            
-            # Kicsi szünet a keresések között, hogy ne terheljük túl az oldalt
-            time.sleep(2)
+            time.sleep(2) # Kicsi szünet a kulcsszavak között
 
         except Exception as e:
             print(f"HIBA a HardverAprónál ({keyword}): {e}")
 
-# --- 2. MENEMSZOL SCRAPER ---
+# --- 2. MENEMSZOL SCRAPER (GYORSÍTOTT) ---
 
 def scrape_menemszol(seen_ads, keywords):
     print("--- Menemszol.hu ellenőrzése ---")
@@ -170,6 +170,8 @@ def scrape_menemszol(seen_ads, keywords):
         page.get(URL_MSZ)
         
         # --- CLOUDFLARE KEZELÉS ---
+        
+        # Azonnal csekkoljuk a címet (nincs fix várakozás)
         if "Verify" in page.title or "Just a moment" in page.title:
             print("⚠️ Cloudflare gyanú! Megoldás indítása...")
             try:
@@ -203,7 +205,41 @@ def scrape_menemszol(seen_ads, keywords):
                 if any(x in href for x in ignore_list): continue
                 if not text or len(text) < 3: continue
 
-                # KULCSSZÓ KERESÉS
+                # KULCSSZÓ KERESÉS (Menemszol lista alapján)
                 if not any(word in text.lower() for word in keywords): continue
 
-                # DUPLIKÁ
+                # DUPLIKÁCIÓ SZŰRÉS
+                if href in seen_ads: continue
+
+                print(f"Új Menemszol találat: {text}")
+                msg = f"🎹 TALÁLAT (Menemszol)!\n\n**{text}**\n\nLink: {href}"
+                send_telegram(msg)
+                
+                save_seen_ad(href)
+                seen_ads.add(href)
+                new_count += 1
+            
+            print(f"Menemszol vége. {new_count} új hirdetés.")
+
+    except Exception as e:
+        print(f"KRITIKUS HIBA a Menemszolnál: {e}")
+    finally:
+        if page:
+            try:
+                page.quit()
+                print("Böngésző bezárva.")
+            except:
+                pass
+
+# --- FŐ PROGRAM ---
+
+if __name__ == "__main__":
+    seen_ads_memory = load_seen_ads()
+    
+    # Kulcsszavak betöltése
+    all_keywords = load_keywords_by_site()
+    
+    # Indítás
+    scrape_hardverapro(seen_ads_memory, all_keywords['hardverapro'])
+    print("-" * 30)
+    scrape_menemszol(seen_ads_memory, all_keywords['menemszol'])
