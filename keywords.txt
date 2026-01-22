@@ -13,3 +13,5 @@ teo-5
 JP-8080
 JP-8000
 Nord Lead
+Aira J-6
+Roland J-6
