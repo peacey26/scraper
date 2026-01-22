@@ -1,6 +1,6 @@
 [HARDVERAPRO]
 mac mini
-HIHETETLEN!
+BD-JB
 
 [MENEMSZOL]
 virus
