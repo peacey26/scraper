@@ -34,3 +34,11 @@ jobs:
         with:
           commit_message: "Update seen ads list"
           file_pattern: seen_ads.txt
+      - name: Upload debug info
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: |
+            debug_screenshot.png
+            debug_source.html
