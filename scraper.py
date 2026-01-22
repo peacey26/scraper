@@ -5,9 +5,8 @@ import sys
 import time
 import shutil
 
-# --- ÚJ IMPORTOK A BÖNGÉSZŐHÖZ ---
-import undetected_chromedriver as uc
-from selenium.webdriver.common.by import By
+# --- ÚJ MOTOR: DrissionPage ---
+from DrissionPage import ChromiumPage, ChromiumOptions
 
 # --- BEÁLLÍTÁSOK ---
 TOKEN = os.environ.get('TELEGRAM_TOKEN')
@@ -92,104 +91,127 @@ def scrape_hardverapro(seen_ads):
     except Exception as e:
         print(f"HIBA a HardverAprónál: {e}")
 
-# --- 2. MENEMSZOL SCRAPER (Selenium - Auto Verzió) ---
+# --- 2. MENEMSZOL SCRAPER (DrissionPage - Stealth Mode) ---
 
 def scrape_menemszol(seen_ads):
-    print("--- Menemszol.hu ellenőrzése (Fényképezős Debug) ---")
+    print("--- Menemszol.hu ellenőrzése (DrissionPage) ---")
     
     keywords = ['virus', 'access', 'elektron']
-    driver = None
+    page = None
     
     try:
-        print("Chrome keresése...")
-        # Megkeressük a rendszerre telepített Chrome-ot (amit a setup-chrome action tett fel)
-        chrome_path = shutil.which("google-chrome") or shutil.which("chrome") or shutil.which("chromium")
-        
-        print(f"Chrome útvonal: {chrome_path}")
-        
-        print("Chrome indítása...")
-        options = uc.ChromeOptions()
-        options.add_argument('--headless=new')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--window-size=1920,1080')
-        
-        # Ha megtaláltuk a Chrome-ot, megadjuk az útvonalat
-        if chrome_path:
-            options.binary_location = chrome_path
+        print("Böngésző konfigurálása...")
+        co = ChromiumOptions()
+        # Ezek a beállítások teszik "lopakodóvá" és alkalmassá a szerveres futásra
+        co.set_argument('--no-sandbox')
+        co.set_argument('--headless=new') # Az új headless mód sokkal emberibb
+        co.set_argument('--disable-gpu')
+        # Beállítunk egy igazi User Agentet
+        co.set_user_agent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
 
-        # Most nem adunk meg version_main-t, hagyjuk hogy automatikus legyen
-        driver = uc.Chrome(options=options)
+        # Megkeressük a telepített Chrome-ot
+        chrome_path = shutil.which("google-chrome") or shutil.which("chrome") or shutil.which("chromium")
+        if chrome_path:
+             co.set_paths(browser_path=chrome_path)
+
+        page = ChromiumPage(co)
         
         print("Oldal megnyitása...")
-        driver.get(URL_MSZ)
+        page.get(URL_MSZ)
         
-        print("Várakozás (25 mp)...") 
-        time.sleep(25)
+        # --- CLOUDFLARE KEZELÉS START ---
         
-        # --- DIAGNOSZTIKA START ---
+        # Várunk kicsit, hátha betölt a Captcha
+        time.sleep(5)
         
-        page_source = driver.page_source
-        soup = BeautifulSoup(page_source, 'html.parser')
-        
-        page_title = soup.title.get_text().strip() if soup.title else "Nincs cím"
-        print(f"Betöltött oldal címe: {page_title}")
-        
-        ads = soup.find_all('li', class_='ipsDataItem')
-        count = len(ads)
-        print(f"Talált hirdetések száma: {count}")
-
-        # Ha 0 hirdetés van, vagy gyanús az oldal, FÉNYKÉPEZÜNK
-        if count == 0 or "Just a moment" in page_title or "Attention Required" in page_title:
-            print("⚠️ GYANÚS! Képernyőfotó készítése: debug_screenshot.png")
-            driver.save_screenshot("debug_screenshot.png")
-            with open("debug_source.html", "w", encoding="utf-8") as f:
-                f.write(page_source)
-        
-        # --- DIAGNOSZTIKA END ---
-
-        new_count = 0
-        for ad in ads:
+        if "Verify" in page.title or "Just a moment" in page.title:
+            print("⚠️ Cloudflare ellenőrzés detektálva! Próbáljuk megoldani...")
+            
+            # Megpróbáljuk megkeresni a Cloudflare checkboxot (általában iframe-ben van)
+            # A DrissionPage nagyon okos, átlát az Iframe-eken
             try:
-                title_element = ad.find('h4', class_='ipsDataItem_title') or ad.find('h3', class_='ipsDataItem_title')
-                if not title_element: continue
-
-                title = title_element.get_text(strip=True)
-                link_element = title_element.find('a')
-                if not link_element: continue
-                full_link = link_element['href']
-
-                price = "N/A"
-                price_element = ad.find('span', class_='cClassifiedPrice') or ad.find('span', class_='ipsType_price')
-                if price_element:
-                    price = price_element.get_text(strip=True)
-
-                if not any(word in title.lower() for word in keywords):
-                    continue
-
-                if full_link in seen_ads:
-                    continue
-
-                print(f"Új Menemszol találat: {title}")
-                msg = f"🎹 TALÁLAT (Virus/Access/Elektron)!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
-                send_telegram(msg)
+                # Ez a leggyakoribb Cloudflare doboz elem
+                cf_box = page.ele('@id=challenge-stage', timeout=2)
+                if cf_box:
+                    print("Megvan a Challenge doboz, keressük a gombot...")
+                    # Megpróbálunk kattintani a dobozra vagy a checkboxra
+                    cf_box.click() 
+                    time.sleep(2)
                 
-                save_seen_ad(full_link)
-                seen_ads.add(full_link)
-                new_count += 1
-
+                # Néha a 'Verify you are human' szövegre kell kattintani
+                verify_text = page.ele('text:Verify you are human', timeout=2)
+                if verify_text:
+                    verify_text.click()
+                    
+                print("Kattintás elküldve, várakozás az átirányításra (10 mp)...")
+                time.sleep(10)
+                
             except Exception as e:
-                print(f"Hiba egy hirdetésnél: {e}")
-                continue
+                print(f"Nem sikerült a Captcha kattintás: {e}")
         
-        print(f"Menemszol vége. {new_count} új hirdetés.")
+        # --- CLOUDFLARE KEZELÉS END ---
+
+        # Ellenőrizzük, átjutottunk-e
+        page_title = page.title
+        print(f"Aktuális oldal címe: {page_title}")
+        
+        if "Just a moment" in page_title:
+             print("❌ Sajnos nem jutottunk át a védelmen. Képernyőfotó mentése...")
+             page.get_screenshot(path='debug_screenshot.png')
+             with open("debug_source.html", "w", encoding="utf-8") as f:
+                f.write(page.html)
+        else:
+            print("✅ Sikeresen betöltve!")
+            
+            # Adatok kinyerése
+            # A DrissionPage-ből is csinálhatunk BeautifulSoup objektumot a megszokott kereséshez
+            soup = BeautifulSoup(page.html, 'html.parser')
+            
+            ads = soup.find_all('li', class_='ipsDataItem')
+            new_count = 0
+            
+            # --- Ugyanaz a feldolgozó logika, mint eddig ---
+            for ad in ads:
+                try:
+                    title_element = ad.find('h4', class_='ipsDataItem_title') or ad.find('h3', class_='ipsDataItem_title')
+                    if not title_element: continue
+
+                    title = title_element.get_text(strip=True)
+                    link_element = title_element.find('a')
+                    if not link_element: continue
+                    full_link = link_element['href']
+
+                    price = "N/A"
+                    price_element = ad.find('span', class_='cClassifiedPrice') or ad.find('span', class_='ipsType_price')
+                    if price_element:
+                        price = price_element.get_text(strip=True)
+
+                    if not any(word in title.lower() for word in keywords):
+                        continue
+
+                    if full_link in seen_ads:
+                        continue
+
+                    print(f"Új Menemszol találat: {title}")
+                    msg = f"🎹 TALÁLAT (Virus/Access/Elektron)!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
+                    send_telegram(msg)
+                    
+                    save_seen_ad(full_link)
+                    seen_ads.add(full_link)
+                    new_count += 1
+
+                except Exception as e:
+                    print(f"Hiba egy hirdetésnél: {e}")
+                    continue
+            
+            print(f"Menemszol vége. {new_count} új hirdetés.")
 
     except Exception as e:
-        print(f"HIBA a Menemszolnál (Selenium): {e}")
+        print(f"KRITIKUS HIBA a Menemszolnál: {e}")
     finally:
-        if driver:
+        if page:
             try:
-                driver.quit()
+                page.quit()
                 print("Böngésző bezárva.")
             except:
                 pass
