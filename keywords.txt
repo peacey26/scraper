@@ -5,5 +5,4 @@ m2
 [MENEMSZOL]
 virus
 access
-elektron
-focusrite
+behringer
