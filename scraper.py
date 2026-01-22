@@ -15,7 +15,7 @@ SEEN_FILE = "seen_ads.txt"
 KEYWORDS_FILE = "keywords.txt"
 
 # URL-ek
-# HardverApró kereső alap link (ehhez adjuk a kulcsszót)
+# HardverApró kereső alap link
 URL_HA_SEARCH_BASE = "https://hardverapro.hu/aprok/keres.php?order=1&stext="
 # Menemszol lista oldal
 URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
@@ -78,34 +78,32 @@ def load_keywords_by_site():
                 if current_section in keywords:
                     keywords[current_section].append(line.lower())
         
-        # Ha valamelyik üres maradt, töltsük fel az alappal
         if not keywords["hardverapro"]: keywords["hardverapro"] = defaults["hardverapro"]
         if not keywords["menemszol"]: keywords["menemszol"] = defaults["menemszol"]
             
-        print(f"📋 HardverApró szavak: {keywords['hardverapro']}")
-        print(f"📋 Menemszol szavak: {keywords['menemszol']}")
         return keywords
 
     except Exception as e:
         print(f"Hiba a kulcsszavak olvasásakor: {e}")
         return defaults
 
-# --- 1. HARDVERAPRÓ SCRAPER (KERESŐ MÓD) ---
+# --- 1. HARDVERAPRÓ SCRAPER (PONTOS KERESÉS MÓD) ---
 
 def scrape_hardverapro(seen_ads, keywords):
-    print("--- HardverApró ellenőrzése (Kereső Mód) ---")
+    print("--- HardverApró ellenőrzése (Pontos Keresés) ---")
     
     ha_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://hardverapro.hu/"
     }
 
-    # Végigmegyünk a HardverAprós kulcsszavakon
     for keyword in keywords:
-        print(f"🔎 Keresés erre: {keyword}...")
+        # ITT A TRÜKK: Idézőjelbe tesszük a kifejezést!
+        # Így a HardverApró pontos kifejezésként keresi.
+        search_term = f'"{keyword}"'
+        print(f"🔎 Keresés erre: {search_term}...")
         
-        # URL összerakása: keresés + időrendi rendezés
-        search_url = f"{URL_HA_SEARCH_BASE}{keyword}"
+        search_url = f"{URL_HA_SEARCH_BASE}{search_term}"
         
         try:
             response = requests.get(search_url, headers=ha_headers)
@@ -128,8 +126,6 @@ def scrape_hardverapro(seen_ads, keywords):
                 price_div = ad.find('div', class_='uad-price')
                 price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-                # Itt már nem kell szűrni a címre, mert a kereső elvégezte.
-                # Csak azt nézzük, láttuk-e már.
                 if full_link in seen_ads: continue 
                 
                 print(f"Új HA találat: {title}")
@@ -141,12 +137,12 @@ def scrape_hardverapro(seen_ads, keywords):
                 new_count += 1
             
             print(f"  -> {new_count} új találat ennél a szónál.")
-            time.sleep(2) # Kicsi szünet a kulcsszavak között
+            time.sleep(2)
 
         except Exception as e:
             print(f"HIBA a HardverAprónál ({keyword}): {e}")
 
-# --- 2. MENEMSZOL SCRAPER (GYORSÍTOTT) ---
+# --- 2. MENEMSZOL SCRAPER ---
 
 def scrape_menemszol(seen_ads, keywords):
     print("--- Menemszol.hu ellenőrzése ---")
@@ -169,9 +165,7 @@ def scrape_menemszol(seen_ads, keywords):
         print(f"Link megnyitása: {URL_MSZ}")
         page.get(URL_MSZ)
         
-        # --- CLOUDFLARE KEZELÉS ---
-        
-        # Azonnal csekkoljuk a címet (nincs fix várakozás)
+        # --- CLOUDFLARE ---
         if "Verify" in page.title or "Just a moment" in page.title:
             print("⚠️ Cloudflare gyanú! Megoldás indítása...")
             try:
@@ -199,16 +193,14 @@ def scrape_menemszol(seen_ads, keywords):
                 href = link['href']
                 text = link.get_text(" ", strip=True)
                 
-                # --- SZŰRÉS ---
                 if "/aprohirdetes/" not in href: continue
                 ignore_list = ["/category/", "/page/", "?sort", "&sort", "do=markRead", "/profile/"]
                 if any(x in href for x in ignore_list): continue
                 if not text or len(text) < 3: continue
 
-                # KULCSSZÓ KERESÉS (Menemszol lista alapján)
+                # A Menemszolnál ez a sor garantálja a pontos kifejezést:
                 if not any(word in text.lower() for word in keywords): continue
 
-                # DUPLIKÁCIÓ SZŰRÉS
                 if href in seen_ads: continue
 
                 print(f"Új Menemszol találat: {text}")
@@ -235,11 +227,8 @@ def scrape_menemszol(seen_ads, keywords):
 
 if __name__ == "__main__":
     seen_ads_memory = load_seen_ads()
-    
-    # Kulcsszavak betöltése
     all_keywords = load_keywords_by_site()
     
-    # Indítás
     scrape_hardverapro(seen_ads_memory, all_keywords['hardverapro'])
     print("-" * 30)
     scrape_menemszol(seen_ads_memory, all_keywords['menemszol'])
