@@ -15,8 +15,6 @@ SEEN_FILE = "seen_ads.txt"
 KEYWORDS_FILE = "keywords.txt"
 
 # 🌊 AUTOMATA ÁRVÍZVÉDELEM
-# Ha egy kulcsszóra egyszerre ennél több találat van, azt "előzmény betöltésnek" vesszük.
-# Ilyenkor nem küld egyesével értesítést, csak egy összefoglalót.
 FLOOD_LIMIT = 3 
 
 # URL-ek
@@ -47,11 +45,15 @@ def save_seen_ad(ad_url):
         f.write(ad_url + "\n")
 
 def load_keywords_by_site():
+    """
+    Beolvassa a keywords.txt-t.
+    - Kezeli a kikommentelt sorokat (#).
+    - Kezeli a 'kulcsszó -- url' formátumot a HardverAprónál (DUPLA KÖTŐJEL).
+    """
     keywords = {"hardverapro": [], "menemszol": []}
-    defaults = {"hardverapro": ["mac mini"], "menemszol": ["elektron", "access", "virus", "focusrite"]}
+    defaults = {"hardverapro": [{"word": "mac mini", "url": None}], "menemszol": ["elektron"]}
 
     if not os.path.exists(KEYWORDS_FILE):
-        print("⚠️ Nem található a keywords.txt, alapértelmezett szavakat használom.")
         return defaults
     
     try:
@@ -59,26 +61,45 @@ def load_keywords_by_site():
         with open(KEYWORDS_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if not line: continue
+                
+                # Üres sorok és KOMMENTEK (#) kihagyása
+                if not line or line.startswith("#"): continue
+                
+                # Szekciók figyelése
                 if line.upper() == "[HARDVERAPRO]":
                     current_section = "hardverapro"
                     continue
                 elif line.upper() == "[MENEMSZOL]":
                     current_section = "menemszol"
                     continue
-                if current_section in keywords:
-                    keywords[current_section].append(line.lower())
+                
+                if current_section == "hardverapro":
+                    # HardverAprónál a " -- " elválasztót keressük (DUPLA KÖTŐJEL)
+                    if " -- " in line:
+                        parts = line.split(" -- ")
+                        word = parts[0].strip().lower()
+                        url = "".join(parts[1:]).strip()
+                    else:
+                        # Csak sima szó
+                        word = line.strip().lower()
+                        url = None
+                        
+                    keywords["hardverapro"].append({"word": word, "url": url})
+                    
+                elif current_section == "menemszol":
+                    keywords["menemszol"].append(line.lower())
         
         if not keywords["hardverapro"]: keywords["hardverapro"] = defaults["hardverapro"]
         if not keywords["menemszol"]: keywords["menemszol"] = defaults["menemszol"]
         return keywords
+
     except Exception as e:
         print(f"Hiba a kulcsszavak olvasásakor: {e}")
         return defaults
 
 # --- 1. HARDVERAPRÓ SCRAPER ---
 
-def scrape_hardverapro(seen_ads, keywords):
+def scrape_hardverapro(seen_ads, keyword_objects):
     print("--- HardverApró ellenőrzése ---")
     
     ha_headers = {
@@ -86,10 +107,21 @@ def scrape_hardverapro(seen_ads, keywords):
         "Referer": "https://hardverapro.hu/"
     }
 
-    for keyword in keywords:
-        search_term = f'"{keyword}"'
-        print(f"🔎 Keresés erre: {search_term}...")
-        search_url = f"{URL_HA_SEARCH_BASE}{search_term}"
+    for item in keyword_objects:
+        keyword = item['word']
+        custom_url = item['url']
+
+        # URL MEGHATÁROZÁSA
+        if custom_url:
+            # Ha van egyedi kategória link
+            separator = "&" if "?" in custom_url else "?"
+            search_url = f"{custom_url}{separator}order=1"
+            print(f"🔎 Kategória keresés: '{keyword}' itt: ...{custom_url[-30:]}")
+        else:
+            # Globális kereső
+            search_term = f'"{keyword}"'
+            print(f"🔎 Globális keresés: {search_term}...")
+            search_url = f"{URL_HA_SEARCH_BASE}{search_term}"
         
         try:
             response = requests.get(search_url, headers=ha_headers)
@@ -112,9 +144,8 @@ def scrape_hardverapro(seen_ads, keywords):
                 price_div = ad.find('div', class_='uad-price')
                 price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-                # Cím ellenőrzés (Szigorú szűrés)
+                # SZIGORÚ CÍM ELLENŐRZÉS
                 if keyword.lower() not in title.lower(): continue
-                
                 if full_link in seen_ads: continue 
                 
                 batch_new_items.append({
@@ -123,7 +154,7 @@ def scrape_hardverapro(seen_ads, keywords):
                     "link": full_link
                 })
 
-            # --- DÖNTÉS ---
+            # --- DÖNTÉS (Árvízvédelem) ---
             count = len(batch_new_items)
             
             if count == 0:
@@ -131,7 +162,10 @@ def scrape_hardverapro(seen_ads, keywords):
 
             if count > FLOOD_LIMIT:
                 print(f"🌊 FLOOD DETEKTÁLVA ({count} db)! Néma mentés...")
-                msg = f"ℹ️ **Új kulcsszó betanítva:** '{keyword}'\n\nTaláltam {count} db régi hirdetést a HardverAprón. Ezeket elmentettem, de nem küldöm el egyesével."
+                
+                source_name = "Kategória" if custom_url else "Kereső"
+                msg = f"ℹ️ **HA Import ({source_name}):** '{keyword}'\n\nTaláltam {count} db régi hirdetést. Elmentve csendben."
+                
                 send_telegram(msg)
                 for item in batch_new_items:
                     save_seen_ad(item['link'])
@@ -186,7 +220,6 @@ def scrape_menemszol(seen_ads, keywords):
         soup = BeautifulSoup(page.html, 'html.parser')
         all_links = soup.find_all('a', href=True)
         
-        # --- GYŰJTÉS ---
         batch_new_items = []
 
         for link in all_links:
@@ -198,7 +231,6 @@ def scrape_menemszol(seen_ads, keywords):
             if any(x in href for x in ignore_list): continue
             if not text or len(text) < 3: continue
 
-            # Kulcsszó keresés
             found_kw = None
             for kw in keywords:
                 if kw in text.lower():
@@ -215,13 +247,12 @@ def scrape_menemszol(seen_ads, keywords):
                 "keyword": found_kw
             })
 
-        # --- DÖNTÉS ---
         count = len(batch_new_items)
         print(f"  -> {count} db új találat az oldalon.")
 
-        if count > 5: # Menemszolon kicsit engedékenyebb a limit, mert egy oldalt nézünk
+        if count > 5: 
              print(f"🌊 FLOOD DETEKTÁLVA ({count} db)!")
-             msg = f"ℹ️ **Menemszol importálás:**\n\nTaláltam {count} db olyan hirdetést, ami eddig nem volt meg. Ezeket némán elmentettem."
+             msg = f"ℹ️ **Menemszol importálás:**\n\nTaláltam {count} db eddig nem látott hirdetést. Némán elmentve."
              send_telegram(msg)
              for item in batch_new_items:
                  save_seen_ad(item['link'])
