@@ -1,6 +1,6 @@
 [HARDVERAPRO]
 mac mini
-TELJES KÖRŰ IT BESZERZÉS
+
 
 
 [MENEMSZOL]
