@@ -1,5 +1,5 @@
 import requests
-from curl_cffi import requests as cffi_requests # EZ AZ ÚJ "CSODAFEGYVER"
+from curl_cffi import requests as cffi_requests
 from bs4 import BeautifulSoup
 import os
 import sys
@@ -33,12 +33,11 @@ def save_seen_ad(ad_url):
     with open(SEEN_FILE, "a") as f:
         f.write(ad_url + "\n")
 
-# --- 1. HARDVERAPRÓ SCRAPER (Marad a régi, mert jól működik) ---
+# --- 1. HARDVERAPRÓ SCRAPER ---
 
 def scrape_hardverapro(seen_ads):
     print("--- HardverApró ellenőrzése ---")
     
-    # A HardverAprónak kell a Referer, különben gyanakszik
     ha_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://hardverapro.hu/"
@@ -54,13 +53,10 @@ def scrape_hardverapro(seen_ads):
         
         for ad in ads:
             title_div = ad.find('div', class_='uad-col-title')
-            
-            if not title_div:
-                continue
+            if not title_div: continue
             
             link_tag = title_div.find('a')
-            if not link_tag:
-                continue
+            if not link_tag: continue
 
             title = link_tag.get_text().strip()
             link = link_tag['href']
@@ -73,8 +69,7 @@ def scrape_hardverapro(seen_ads):
             price_div = ad.find('div', class_='uad-price')
             price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-            if full_link in seen_ads:
-                continue 
+            if full_link in seen_ads: continue 
             
             print(f"Új HA találat: {title}")
             msg = f"🍎 Új Mac Mini hirdetés!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
@@ -89,27 +84,30 @@ def scrape_hardverapro(seen_ads):
     except Exception as e:
         print(f"HIBA a HardverAprónál: {e}")
 
-# --- 2. MENEMSZOL SCRAPER (ÚJ: curl_cffi használata) ---
+# --- 2. MENEMSZOL SCRAPER (DEBUG MÓD) ---
 
 def scrape_menemszol(seen_ads):
-    print("--- Menemszol.hu ellenőrzése ---")
+    print("--- Menemszol.hu ellenőrzése (DEBUG) ---")
     
     keywords = ['virus', 'access', 'elektron']
     
     try:
-        # ITT A LÉNYEG: impersonate="chrome"
-        # Ez lemásolja egy valódi Chrome böngésző minden rezdülését.
-        response = cffi_requests.get(URL_MSZ, impersonate="chrome")
+        # Frissebb Chrome álcát használunk (chrome120)
+        response = cffi_requests.get(URL_MSZ, impersonate="chrome120")
         
-        if response.status_code != 200:
-            print(f"Hiba a Menemszol lekérésekor: {response.status_code}")
-            # Ha még mindig hiba van, kiírjuk a HTML egy részét, hogy lássuk mi blokkol
-            print(f"DEBUG INFO: {response.text[:200]}") 
+        # 1. DIAGNOSZTIKA: Mit látunk?
+        soup = BeautifulSoup(response.text, 'html.parser')
+        page_title = soup.title.get_text().strip() if soup.title else "Nincs cím"
+        print(f"Látott oldal címe: {page_title}")
+        
+        if "Just a moment" in page_title or "Attention Required" in page_title:
+            print("⚠️ CLOUDFLARE BLOKKOLÁS (Captcha oldal)!")
             return
 
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
+        # 2. DIAGNOSZTIKA: Találunk listaelemeket?
         ads = soup.find_all('li', class_='ipsDataItem')
+        print(f"Talált lista elemek száma: {len(ads)}")
+
         new_count = 0
 
         for ad in ads:
@@ -132,7 +130,9 @@ def scrape_menemszol(seen_ads):
                 if price_element:
                     price = price_element.get_text(strip=True)
 
+                # Ellenőrizzük, hogy a kulcsszó benne van-e
                 if not any(word in title.lower() for word in keywords):
+                    # print(f"  (Skipped: {title})") # Ha nagyon kell debug, ezt is bekapcsolhatod
                     continue
 
                 if full_link in seen_ads:
@@ -147,7 +147,7 @@ def scrape_menemszol(seen_ads):
                 new_count += 1
 
             except Exception as e:
-                print(f"Hiba egy Menemszol hirdetés feldolgozásakor: {e}")
+                print(f"Hiba egy hirdetésnél: {e}")
                 continue
         
         print(f"Menemszol vége. {new_count} új hirdetés.")
