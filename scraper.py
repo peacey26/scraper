@@ -18,7 +18,7 @@ KEYWORDS_FILE = "keywords.txt"
 # Ha új kulcsszót adsz hozzá, állítsd ezt True-ra egy kör erejéig!
 # True = Elmenti a találatokat, de NEM küld Telegram üzenetet.
 # False = Normál működés, küld üzenetet.
-SILENT_MODE = True 
+SILENT_MODE = False 
 
 # URL-ek
 URL_HA_SEARCH_BASE = "https://hardverapro.hu/aprok/keres.php?order=1&stext="
