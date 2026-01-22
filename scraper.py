@@ -81,7 +81,7 @@ def scrape_hardverapro(seen_ads):
 def scrape_menemszol(seen_ads):
     print("--- Menemszol.hu ellenőrzése ---")
     
-    keywords = ['virus', 'access', 'elektron', 'focusrite']
+    keywords = ['virus', 'access', 'elektron']
     page = None
     
     try:
