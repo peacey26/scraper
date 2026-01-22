@@ -1,7 +1,5 @@
 [HARDVERAPRO]
 mac mini
-TELJES KÖRŰ IT BESZERZÉS
-RTX 5060
 
 [MENEMSZOL]
 virus
