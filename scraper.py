@@ -91,7 +91,7 @@ def scrape_hardverapro(seen_ads):
 # --- 2. MENEMSZOL SCRAPER (Selenium - Fényképezős Debug) ---
 
 def scrape_menemszol(seen_ads):
-    print("--- Menemszol.hu ellenőrzése (Böngészővel) ---")
+    print("--- Menemszol.hu ellenőrzése (Fényképezős Debug) ---")
     
     keywords = ['virus', 'access', 'elektron']
     driver = None
@@ -104,32 +104,31 @@ def scrape_menemszol(seen_ads):
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--window-size=1920,1080')
         
+        # Nem adunk meg verziót, hagyjuk hogy az uc intézze
         driver = uc.Chrome(options=options)
         
         print("Oldal megnyitása...")
         driver.get(URL_MSZ)
         
-        print("Várakozás a Cloudflare átengedésre (25 mp)...")
-        time.sleep(25) 
+        print("Várakozás (25 mp)...") 
+        time.sleep(25)
         
         # --- DIAGNOSZTIKA START ---
         
-        # 1. HTML Cím kiírása
         page_source = driver.page_source
         soup = BeautifulSoup(page_source, 'html.parser')
+        
         page_title = soup.title.get_text().strip() if soup.title else "Nincs cím"
         print(f"Betöltött oldal címe: {page_title}")
         
-        # 2. Hirdetések keresése
         ads = soup.find_all('li', class_='ipsDataItem')
         count = len(ads)
         print(f"Talált hirdetések száma: {count}")
 
-        # 3. FÉNYKÉPEZÉS (Ha 0 hirdetés van, vagy gyanús az oldal)
+        # Ha 0 hirdetés van, vagy gyanús az oldal, FÉNYKÉPEZÜNK
         if count == 0 or "Just a moment" in page_title:
             print("⚠️ GYANÚS! Képernyőfotó készítése: debug_screenshot.png")
             driver.save_screenshot("debug_screenshot.png")
-            # Mentsük el a HTML-t is
             with open("debug_source.html", "w", encoding="utf-8") as f:
                 f.write(page_source)
         
