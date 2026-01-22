@@ -5,7 +5,7 @@ import sys
 import time
 import shutil
 
-# --- ÚJ MOTOR: DrissionPage ---
+# --- MOTOR: DrissionPage ---
 from DrissionPage import ChromiumPage, ChromiumOptions
 
 # --- BEÁLLÍTÁSOK ---
@@ -16,7 +16,7 @@ SEEN_FILE = "seen_ads.txt"
 # URL-ek
 URL_HA = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
 
-# FRISSÍTETT URL (A hirdetések konkrét listája):
+# A kért URL (Lista oldal):
 URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
 
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
@@ -78,10 +78,10 @@ def scrape_hardverapro(seen_ads):
     except Exception as e:
         print(f"HIBA a HardverAprónál: {e}")
 
-# --- 2. MENEMSZOL SCRAPER (DrissionPage - LINK VADÁSZ) ---
+# --- 2. MENEMSZOL SCRAPER (DrissionPage - OKOS LISTA MÓD) ---
 
 def scrape_menemszol(seen_ads):
-    print("--- Menemszol.hu ellenőrzése (Link Vadász Mód) ---")
+    print("--- Menemszol.hu ellenőrzése (Okos Szűrő Mód) ---")
     
     keywords = ['virus', 'access', 'elektron', 'focusrite']
     page = None
@@ -120,11 +120,7 @@ def scrape_menemszol(seen_ads):
         else:
             print("✅ Sikeresen betöltve!")
             
-            # ELMENTJÜK A HTML-T, HOGY LÁSSUK MIT LÁT A ROBOT (Debug)
-            with open("debug_source.html", "w", encoding="utf-8") as f:
-                f.write(page.html)
-
-            # --- KERESÉSI LOGIKA: LINK VADÁSZAT ---
+            # BeautifulSoup elemzés
             soup = BeautifulSoup(page.html, 'html.parser')
             
             # Megkeresünk MINDEN linket az oldalon
@@ -137,28 +133,33 @@ def scrape_menemszol(seen_ads):
                 href = link['href']
                 text = link.get_text(" ", strip=True) # A link szövege
                 
-                # SZŰRÉS 1: Csak azokat nézzük, amik hirdetésre mutatnak ("/item/")
-                # A Menemszol hirdetések URL-je tartalmazza az "item" szót
-                if "/aprohirdetes/item/" not in href:
-                    continue
+                # --- SZŰRÉSI LOGIKA (Javítva) ---
                 
-                if not text:
+                # 1. Csak azokat nézzük, amik az apróhirdetés részhez tartoznak
+                if "/aprohirdetes/" not in href:
                     continue
 
-                # SZŰRÉS 2: Kulcsszó keresése a CÍMBEN (a link szövegében)
+                # 2. KIZÁRJUK a szemetet (kategóriák, lapozók, rendezés, profilok)
+                ignore_list = ["/category/", "/page/", "?sort", "&sort", "do=markRead", "/profile/"]
+                if any(x in href for x in ignore_list):
+                    continue
+                
+                # Ha üres a szöveg, nem érdekel
+                if not text or len(text) < 3:
+                    continue
+
+                # 3. KULCSSZÓ KERESÉS (Címben)
                 if not any(word in text.lower() for word in keywords):
                     continue
 
-                # SZŰRÉS 3: Duplikáció
+                # 4. DUPLIKÁCIÓ SZŰRÉS
                 if href in seen_ads:
                     continue
 
                 # TALÁLAT!
                 print(f"Új Menemszol találat: {text}")
                 
-                price = "N/A (Kattints a linkre)"
-                
-                msg = f"🎹 TALÁLAT (Listaoldal)!\n\n**{text}**\nÁr: {price}\n\nLink: {href}"
+                msg = f"🎹 TALÁLAT (Menemszol)!\n\n**{text}**\n\nLink: {href}"
                 send_telegram(msg)
                 
                 save_seen_ad(href)
