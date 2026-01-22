@@ -1,16 +1,16 @@
-name: Hardverapro Watcher
+name: Scraper futtatása
 
 on:
+  workflow_dispatch:  # Kézi indítás lehetősége
   schedule:
-    - cron: '*/5 * * * *' # 1 percenként fut
-  workflow_dispatch:
-
-permissions:
-  contents: write # EZ KELL ahhoz, hogy menteni tudjon!
+    - cron: "*/15 * * * *"  # 15 percenkénti futás
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
     steps:
       - name: Kód letöltése
         uses: actions/checkout@v3
@@ -20,8 +20,16 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Csomagok telepítése
-        run: pip install -r requirements.txt
+      # EZ AZ ÚJ LÉPÉS: Fix Chrome telepítése
+      - name: Chrome beállítása
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Függőségek telepítése
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Scraper futtatása
         env:
@@ -29,11 +37,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python scraper.py
 
-      - name: Változások mentése (hogy ne küldje újra)
-        uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: "Update seen ads list"
-          file_pattern: seen_ads.txt
+      # Ez tölti fel a képet, ha hiba van
       - name: Upload debug info
         if: always()
         uses: actions/upload-artifact@v4
@@ -42,3 +46,9 @@ jobs:
           path: |
             debug_screenshot.png
             debug_source.html
+
+      - name: Változások mentése (hogy ne küldje újra)
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Adatbázis frissítése [skip ci]"
+          file_pattern: seen_ads.txt
