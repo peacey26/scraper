@@ -217,4 +217,19 @@ def scrape_menemszol(seen_ads, keywords):
         if page:
             try:
                 page.quit()
-                print("B
+                print("Böngésző bezárva.")
+            except:
+                pass
+
+# --- FŐ PROGRAM ---
+
+if __name__ == "__main__":
+    seen_ads_memory = load_seen_ads()
+    
+    # 1. Betöltjük a szavakat a fájlból
+    all_keywords = load_keywords_by_site()
+    
+    # 2. Elindítjuk a keresést a megfelelő listákkal
+    scrape_hardverapro(seen_ads_memory, all_keywords['hardverapro'])
+    print("-" * 30)
+    scrape_menemszol(seen_ads_memory, all_keywords['menemszol'])
