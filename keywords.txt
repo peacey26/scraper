@@ -3,7 +3,8 @@
 # videokártya -- https://hardverapro.hu/aprok/pc_szerver/videokartya/index.html
 
 [HARDVERAPRO]
-mac mini
+mac miniű
+mac pro -- https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_pro/index.html
 
 [MENEMSZOL]
 virus
