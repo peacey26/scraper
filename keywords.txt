@@ -15,3 +15,5 @@ JP-8000
 Nord Lead
 Aira J-6
 Roland J-6
+KH-120
+KH120
