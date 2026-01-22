@@ -16,8 +16,8 @@ SEEN_FILE = "seen_ads.txt"
 # URL-ek
 URL_HA = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
 
-# KIZÁRÓLAG EZT AZ EGY OLDALT FIGYELJÜK:
-URL_MSZ = "https://www.menemszol.hu/aprohirdetes/"
+# FRISSÍTETT URL (A hirdetések konkrét listája):
+URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
 
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
 
@@ -78,7 +78,7 @@ def scrape_hardverapro(seen_ads):
     except Exception as e:
         print(f"HIBA a HardverAprónál: {e}")
 
-# --- 2. MENEMSZOL SCRAPER (DrissionPage - LINK VADÁSZ MÓD) ---
+# --- 2. MENEMSZOL SCRAPER (DrissionPage - LINK VADÁSZ) ---
 
 def scrape_menemszol(seen_ads):
     print("--- Menemszol.hu ellenőrzése (Link Vadász Mód) ---")
@@ -118,13 +118,13 @@ def scrape_menemszol(seen_ads):
              print(f"❌ Cloudflare blokkol. Kép mentése...")
              page.get_screenshot(path='debug_screenshot.png')
         else:
-            print("✅ Sikeresen betöltve! HTML mentése debug célra...")
+            print("✅ Sikeresen betöltve!")
             
-            # ELMENTJÜK A HTML-T, HOGY LÁSSUK MIT LÁT A ROBOT
+            # ELMENTJÜK A HTML-T, HOGY LÁSSUK MIT LÁT A ROBOT (Debug)
             with open("debug_source.html", "w", encoding="utf-8") as f:
                 f.write(page.html)
 
-            # --- ÚJ KERESÉSI LOGIKA: LINK VADÁSZAT ---
+            # --- KERESÉSI LOGIKA: LINK VADÁSZAT ---
             soup = BeautifulSoup(page.html, 'html.parser')
             
             # Megkeresünk MINDEN linket az oldalon
@@ -135,17 +135,14 @@ def scrape_menemszol(seen_ads):
             
             for link in all_links:
                 href = link['href']
-                text = link.get_text(" ", strip=True) # A link szövege (pl. a hirdetés címe)
+                text = link.get_text(" ", strip=True) # A link szövege
                 
                 # SZŰRÉS 1: Csak azokat nézzük, amik hirdetésre mutatnak ("/item/")
-                # Ez a Menemszol hirdetések mintázata
+                # A Menemszol hirdetések URL-je tartalmazza az "item" szót
                 if "/aprohirdetes/item/" not in href:
                     continue
                 
-                # Ha a link szövege üres (pl. egy kép linkje), próbáljuk megkeresni a címet máshol
                 if not text:
-                    # Néha a linkben van egy img tag, de nekünk a szöveg kell.
-                    # Ha üres, ugrunk.
                     continue
 
                 # SZŰRÉS 2: Kulcsszó keresése a CÍMBEN (a link szövegében)
@@ -156,14 +153,12 @@ def scrape_menemszol(seen_ads):
                 if href in seen_ads:
                     continue
 
-                # Ha idáig eljutottunk, ez egy ÚJ TALÁLAT!
+                # TALÁLAT!
                 print(f"Új Menemszol találat: {text}")
                 
-                # Megpróbáljuk megkeresni az árat (ez nehézkes, ha nem tudjuk a struktúrát,
-                # de a cím és a link a lényeg!)
                 price = "N/A (Kattints a linkre)"
                 
-                msg = f"🎹 TALÁLAT (Főoldali lista)!\n\n**{text}**\nÁr: {price}\n\nLink: {href}"
+                msg = f"🎹 TALÁLAT (Listaoldal)!\n\n**{text}**\nÁr: {price}\n\nLink: {href}"
                 send_telegram(msg)
                 
                 save_seen_ad(href)
