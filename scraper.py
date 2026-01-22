@@ -6,15 +6,19 @@ import sys
 # --- BEÁLLÍTÁSOK ---
 TOKEN = os.environ['TELEGRAM_TOKEN']
 CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
-# Visszatérünk az eredeti fájlnévhez, hogy tiszta legyen
-SEEN_FILE = "seen_ads.txt" 
-URL = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
+SEEN_FILE = "seen_ads.txt"
+
+# URL-ek
+URL_HA = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
+URL_MSZ = "https://www.menemszol.hu/aprohirdetes/"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Referer": "https://hardverapro.hu/"
 }
+
+# --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -34,27 +38,24 @@ def save_seen_ad(ad_url):
     with open(SEEN_FILE, "a") as f:
         f.write(ad_url + "\n")
 
-def scrape():
-    print("HardverApró figyelése (Javított Selector)...")
-    seen_ads = load_seen_ads()
+# --- 1. HARDVERAPRÓ SCRAPER ---
+
+def scrape_hardverapro(seen_ads):
+    print("--- HardverApró ellenőrzése ---")
     
     try:
-        response = requests.get(URL, headers=HEADERS)
+        response = requests.get(URL_HA, headers=HEADERS)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
-        # Hirdetések keresése
         ads = soup.find_all('li', class_='media')
-        print(f"Talált hirdetések száma: {len(ads)}")
-        
         new_count = 0
         
         for ad in ads:
-            # --- ITT VOLT A HIBA: A 'uad-title' helyett 'uad-col-title' kell ---
             title_div = ad.find('div', class_='uad-col-title')
             
             if not title_div:
-                continue # Ha nincs címe, átugorjuk
+                continue
             
             link_tag = title_div.find('a')
             if not link_tag:
@@ -63,22 +64,18 @@ def scrape():
             title = link_tag.get_text().strip()
             link = link_tag['href']
             
-            # Link javítása: Ha nem teljes link, kiegészítjük, ha teljes, hagyjuk
             if link.startswith("http"):
                 full_link = link
             else:
                 full_link = f"https://hardverapro.hu{link}"
 
-            # Ár keresése
             price_div = ad.find('div', class_='uad-price')
             price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-            # Ellenőrzés: Láttuk már?
             if full_link in seen_ads:
                 continue 
             
-            # Küldés
-            print(f"Új találat: {title}")
+            print(f"Új HA találat: {title}")
             msg = f"🍎 Új Mac Mini hirdetés!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
             send_telegram(msg)
             
@@ -86,11 +83,79 @@ def scrape():
             seen_ads.add(full_link)
             new_count += 1
 
-        print(f"Futás vége. {new_count} új hirdetés elküldve.")
+        print(f"HA vége. {new_count} új hirdetés.")
 
     except Exception as e:
-        print(f"KRITIKUS HIBA: {e}")
-        sys.exit(1)
+        print(f"HIBA a HardverAprónál: {e}")
+
+# --- 2. MENEMSZOL SCRAPER ---
+
+def scrape_menemszol(seen_ads):
+    print("--- Menemszol.hu ellenőrzése ---")
+    
+    # ITT A MÓDOSÍTÁS: Bekerült az 'elektron'
+    keywords = ['virus', 'access', 'elektron']
+    
+    try:
+        response = requests.get(URL_MSZ, headers=HEADERS)
+        if response.status_code != 200:
+            print(f"Hiba a Menemszol lekérésekor: {response.status_code}")
+            return
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        ads = soup.find_all('li', class_='ipsDataItem')
+        new_count = 0
+
+        for ad in ads:
+            try:
+                title_element = ad.find('h4', class_='ipsDataItem_title') or ad.find('h3', class_='ipsDataItem_title')
+                
+                if not title_element:
+                    continue
+
+                title = title_element.get_text(strip=True)
+                
+                link_element = title_element.find('a')
+                if not link_element:
+                    continue
+                    
+                full_link = link_element['href']
+
+                price = "N/A"
+                price_element = ad.find('span', class_='cClassifiedPrice') or ad.find('span', class_='ipsType_price')
+                if price_element:
+                    price = price_element.get_text(strip=True)
+
+                # 1. SZŰRÉS: Kulcsszavak
+                if not any(word in title.lower() for word in keywords):
+                    continue
+
+                # 2. SZŰRÉS: Duplikáció
+                if full_link in seen_ads:
+                    continue
+
+                print(f"Új Menemszol találat: {title}")
+                msg = f"🎹 TALÁLAT (Virus/Access/Elektron)!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
+                send_telegram(msg)
+                
+                save_seen_ad(full_link)
+                seen_ads.add(full_link)
+                new_count += 1
+
+            except Exception as e:
+                print(f"Hiba egy Menemszol hirdetés feldolgozásakor: {e}")
+                continue
+        
+        print(f"Menemszol vége. {new_count} új hirdetés.")
+
+    except Exception as e:
+        print(f"HIBA a Menemszolnál: {e}")
+
+# --- FŐ PROGRAM ---
 
 if __name__ == "__main__":
-    scrape()
+    seen_ads_memory = load_seen_ads()
+    scrape_hardverapro(seen_ads_memory)
+    print("-" * 30)
+    scrape_menemszol(seen_ads_memory)
