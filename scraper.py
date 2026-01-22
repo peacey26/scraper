@@ -15,7 +15,8 @@ SEEN_FILE = "seen_ads.txt"
 KEYWORDS_FILE = "keywords.txt"
 
 # URL-ek
-URL_HA = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
+# A HardverApró alap kereső URL-je (ehhez fűzzük hozzá a kulcsszót)
+URL_HA_SEARCH_BASE = "https://hardverapro.hu/aprok/keres.php?order=1&stext="
 URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
 
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
@@ -76,7 +77,6 @@ def load_keywords_by_site():
                 if current_section in keywords:
                     keywords[current_section].append(line.lower())
         
-        # Ha valamelyik üres maradt, töltsük fel az alappal
         if not keywords["hardverapro"]: keywords["hardverapro"] = defaults["hardverapro"]
         if not keywords["menemszol"]: keywords["menemszol"] = defaults["menemszol"]
             
@@ -88,49 +88,63 @@ def load_keywords_by_site():
         print(f"Hiba a kulcsszavak olvasásakor: {e}")
         return defaults
 
-# --- 1. HARDVERAPRÓ SCRAPER ---
+# --- 1. HARDVERAPRÓ SCRAPER (KERESŐ MÓD) ---
 
 def scrape_hardverapro(seen_ads, keywords):
-    print("--- HardverApró ellenőrzése ---")
+    print("--- HardverApró ellenőrzése (Kereső Mód) ---")
+    
     ha_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Referer": "https://hardverapro.hu/"
     }
-    try:
-        response = requests.get(URL_HA, headers=ha_headers)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        ads = soup.find_all('li', class_='media')
-        new_count = 0
+
+    # Ciklus a kulcsszavakon
+    for keyword in keywords:
+        print(f"🔎 Keresés erre: {keyword}...")
         
-        for ad in ads:
-            title_div = ad.find('div', class_='uad-col-title')
-            if not title_div: continue
-            link_tag = title_div.find('a')
-            if not link_tag: continue
+        # URL összerakása: keresés + időrendi rendezés (order=1)
+        search_url = f"{URL_HA_SEARCH_BASE}{keyword}"
+        
+        try:
+            response = requests.get(search_url, headers=ha_headers)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
             
-            title = link_tag.get_text().strip()
-            link = link_tag['href']
-            full_link = link if link.startswith("http") else f"https://hardverapro.hu{link}"
+            ads = soup.find_all('li', class_='media')
+            new_count = 0
             
-            price_div = ad.find('div', class_='uad-price')
-            price = price_div.get_text().strip() if price_div else "Nincs ár"
+            for ad in ads:
+                title_div = ad.find('div', class_='uad-col-title')
+                if not title_div: continue
+                link_tag = title_div.find('a')
+                if not link_tag: continue
+                
+                title = link_tag.get_text().strip()
+                link = link_tag['href']
+                full_link = link if link.startswith("http") else f"https://hardverapro.hu{link}"
+                
+                price_div = ad.find('div', class_='uad-price')
+                price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-            if not any(word in title.lower() for word in keywords):
-                continue
+                # Itt már nem kell extra kulcsszó szűrés, mert maga a kereső szűrt.
+                # De duplikáció szűrés kell.
+                if full_link in seen_ads: continue 
+                
+                print(f"Új HA találat: {title}")
+                msg = f"🍎 TALÁLAT (HardverApró - {keyword})!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
+                send_telegram(msg)
+                
+                save_seen_ad(full_link)
+                seen_ads.add(full_link)
+                new_count += 1
+            
+            print(f"  -> {new_count} új találat ennél a szónál.")
+            
+            # Kicsi szünet a keresések között, hogy ne terheljük túl az oldalt
+            time.sleep(2)
 
-            if full_link in seen_ads: continue 
-            
-            print(f"Új HA találat: {title}")
-            msg = f"🍎 Új Mac Mini hirdetés!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
-            send_telegram(msg)
-            save_seen_ad(full_link)
-            seen_ads.add(full_link)
-            new_count += 1
-            
-        print(f"HA vége. {new_count} új hirdetés.")
-    except Exception as e:
-        print(f"HIBA a HardverAprónál: {e}")
+        except Exception as e:
+            print(f"HIBA a HardverAprónál ({keyword}): {e}")
 
 # --- 2. MENEMSZOL SCRAPER ---
 
@@ -156,18 +170,14 @@ def scrape_menemszol(seen_ads, keywords):
         page.get(URL_MSZ)
         
         # --- CLOUDFLARE KEZELÉS ---
-        
         if "Verify" in page.title or "Just a moment" in page.title:
             print("⚠️ Cloudflare gyanú! Megoldás indítása...")
             try:
-                # Csak akkor várunk, ha tényleg baj van
                 time.sleep(2) 
                 cf_box = page.ele('@id=challenge-stage', timeout=2)
                 if cf_box: cf_box.click() 
                 verify_text = page.ele('text:Verify you are human', timeout=2)
                 if verify_text: verify_text.click()
-                
-                # Ha kattintottunk, akkor viszont kell idő a betöltéshez
                 print("Kattintás történt, várakozás...")
                 time.sleep(5) 
             except: pass
@@ -189,47 +199,11 @@ def scrape_menemszol(seen_ads, keywords):
                 
                 # --- SZŰRÉS ---
                 if "/aprohirdetes/" not in href: continue
-                
                 ignore_list = ["/category/", "/page/", "?sort", "&sort", "do=markRead", "/profile/"]
                 if any(x in href for x in ignore_list): continue
-                
                 if not text or len(text) < 3: continue
 
-                # KULCSSZÓ KERESÉS (A beadott keywords listából)
+                # KULCSSZÓ KERESÉS
                 if not any(word in text.lower() for word in keywords): continue
 
-                # DUPLIKÁCIÓ SZŰRÉS
-                if href in seen_ads: continue
-
-                print(f"Új Menemszol találat: {text}")
-                msg = f"🎹 TALÁLAT (Menemszol)!\n\n**{text}**\n\nLink: {href}"
-                send_telegram(msg)
-                
-                save_seen_ad(href)
-                seen_ads.add(href)
-                new_count += 1
-            
-            print(f"Menemszol vége. {new_count} új hirdetés.")
-
-    except Exception as e:
-        print(f"KRITIKUS HIBA a Menemszolnál: {e}")
-    finally:
-        if page:
-            try:
-                page.quit()
-                print("Böngésző bezárva.")
-            except:
-                pass
-
-# --- FŐ PROGRAM ---
-
-if __name__ == "__main__":
-    seen_ads_memory = load_seen_ads()
-    
-    # 1. Betöltjük a szavakat a fájlból
-    all_keywords = load_keywords_by_site()
-    
-    # 2. Elindítjuk a keresést a megfelelő listákkal
-    scrape_hardverapro(seen_ads_memory, all_keywords['hardverapro'])
-    print("-" * 30)
-    scrape_menemszol(seen_ads_memory, all_keywords['menemszol'])
+                # DUPLIKÁ
