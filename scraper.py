@@ -14,6 +14,12 @@ CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 SEEN_FILE = "seen_ads.txt"
 KEYWORDS_FILE = "keywords.txt"
 
+# 🤫 CSENDES MÓD
+# Ha új kulcsszót adsz hozzá, állítsd ezt True-ra egy kör erejéig!
+# True = Elmenti a találatokat, de NEM küld Telegram üzenetet.
+# False = Normál működés, küld üzenetet.
+SILENT_MODE = False 
+
 # URL-ek
 URL_HA_SEARCH_BASE = "https://hardverapro.hu/aprok/keres.php?order=1&stext="
 URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
@@ -21,6 +27,11 @@ URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
 
 def send_telegram(message):
+    # Ha be van kapcsolva a Csendes Mód, akkor itt kilépünk küldés nélkül
+    if SILENT_MODE:
+        print("🤫 Csendes mód aktív: Üzenet kihagyva.")
+        return
+
     if not TOKEN or not CHAT_ID:
         print("Hiba: Nincs beállítva TELEGRAM_TOKEN vagy TELEGRAM_CHAT_ID")
         return
@@ -85,10 +96,10 @@ def load_keywords_by_site():
         print(f"Hiba a kulcsszavak olvasásakor: {e}")
         return defaults
 
-# --- 1. HARDVERAPRÓ SCRAPER (CÍM ELLENŐRZÉSSEL) ---
+# --- 1. HARDVERAPRÓ SCRAPER ---
 
 def scrape_hardverapro(seen_ads, keywords):
-    print("--- HardverApró ellenőrzése (Cím Szűrővel) ---")
+    print("--- HardverApró ellenőrzése ---")
     
     ha_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -96,7 +107,6 @@ def scrape_hardverapro(seen_ads, keywords):
     }
 
     for keyword in keywords:
-        # A keresőnek idézőjelben küldjük, hogy pontos legyen
         search_term = f'"{keyword}"'
         print(f"🔎 Keresés erre: {search_term}...")
         
@@ -123,18 +133,19 @@ def scrape_hardverapro(seen_ads, keywords):
                 price_div = ad.find('div', class_='uad-price')
                 price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-                # --- ÚJ SZIGORÍTÁS: CÍM ELLENŐRZÉS ---
-                # Hiába dobta ki a kereső, ha a kulcsszó nincs benne a CÍMBEN, eldobjuk.
+                # Cím ellenőrzés
                 if keyword.lower() not in title.lower():
-                    # print(f"  -> Kihagyva (Nincs a címben): {title}") # Debug ha kellene
                     continue
 
                 if full_link in seen_ads: continue 
                 
                 print(f"Új HA találat: {title}")
                 msg = f"🍎 TALÁLAT (HardverApró - {keyword})!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
+                
+                # Itt hívjuk meg a küldést (ami ellenőrzi a SILENT_MODE-ot)
                 send_telegram(msg)
                 
+                # De a mentés MINDIG megtörténik!
                 save_seen_ad(full_link)
                 seen_ads.add(full_link)
                 new_count += 1
@@ -177,7 +188,6 @@ def scrape_menemszol(seen_ads, keywords):
                 if cf_box: cf_box.click() 
                 verify_text = page.ele('text:Verify you are human', timeout=2)
                 if verify_text: verify_text.click()
-                print("Kattintás történt, várakozás...")
                 time.sleep(5) 
             except: pass
 
@@ -201,13 +211,12 @@ def scrape_menemszol(seen_ads, keywords):
                 if any(x in href for x in ignore_list): continue
                 if not text or len(text) < 3: continue
 
-                # Menemszolnál is szigorúan címre szűrünk
                 if not any(word in text.lower() for word in keywords): continue
-
                 if href in seen_ads: continue
 
                 print(f"Új Menemszol találat: {text}")
                 msg = f"🎹 TALÁLAT (Menemszol)!\n\n**{text}**\n\nLink: {href}"
+                
                 send_telegram(msg)
                 
                 save_seen_ad(href)
