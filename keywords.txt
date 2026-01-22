@@ -1,5 +1,6 @@
 [HARDVERAPRO]
 mac mini
+HIHETETLEN!
 
 [MENEMSZOL]
 virus
