@@ -1,5 +1,5 @@
 import requests
-import cloudscraper # EZ AZ ÚJ KÖNYVTÁR
+from curl_cffi import requests as cffi_requests # EZ AZ ÚJ "CSODAFEGYVER"
 from bs4 import BeautifulSoup
 import os
 import sys
@@ -12,15 +12,6 @@ SEEN_FILE = "seen_ads.txt"
 # URL-ek
 URL_HA = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
 URL_MSZ = "https://www.menemszol.hu/aprohirdetes/"
-
-# Létrehozunk egy "álcázott" böngészőt
-scraper = cloudscraper.create_scraper(
-    browser={
-        'browser': 'chrome',
-        'platform': 'windows',
-        'desktop': True
-    }
-)
 
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
 
@@ -42,14 +33,19 @@ def save_seen_ad(ad_url):
     with open(SEEN_FILE, "a") as f:
         f.write(ad_url + "\n")
 
-# --- 1. HARDVERAPRÓ SCRAPER ---
+# --- 1. HARDVERAPRÓ SCRAPER (Marad a régi, mert jól működik) ---
 
 def scrape_hardverapro(seen_ads):
     print("--- HardverApró ellenőrzése ---")
     
+    # A HardverAprónak kell a Referer, különben gyanakszik
+    ha_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Referer": "https://hardverapro.hu/"
+    }
+
     try:
-        # ITT CSERÉLTÜK LE A requests.get-et scraper.get-re
-        response = scraper.get(URL_HA)
+        response = requests.get(URL_HA, headers=ha_headers)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -93,7 +89,7 @@ def scrape_hardverapro(seen_ads):
     except Exception as e:
         print(f"HIBA a HardverAprónál: {e}")
 
-# --- 2. MENEMSZOL SCRAPER ---
+# --- 2. MENEMSZOL SCRAPER (ÚJ: curl_cffi használata) ---
 
 def scrape_menemszol(seen_ads):
     print("--- Menemszol.hu ellenőrzése ---")
@@ -101,14 +97,14 @@ def scrape_menemszol(seen_ads):
     keywords = ['virus', 'access', 'elektron']
     
     try:
-        # ITT IS scraper.get-et HASZNÁLUNK (ez oldja meg a 403-at)
-        response = scraper.get(URL_MSZ)
+        # ITT A LÉNYEG: impersonate="chrome"
+        # Ez lemásolja egy valódi Chrome böngésző minden rezdülését.
+        response = cffi_requests.get(URL_MSZ, impersonate="chrome")
         
         if response.status_code != 200:
             print(f"Hiba a Menemszol lekérésekor: {response.status_code}")
-            # Ha még így is 403, kiírjuk a választ, hátha segít debugolni
-            if response.status_code == 403:
-                print("A Cloudflare még mindig blokkol, de a cloudscrapernek át kellett volna jutnia.")
+            # Ha még mindig hiba van, kiírjuk a HTML egy részét, hogy lássuk mi blokkol
+            print(f"DEBUG INFO: {response.text[:200]}") 
             return
 
         soup = BeautifulSoup(response.text, 'html.parser')
