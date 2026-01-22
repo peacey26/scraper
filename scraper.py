@@ -1,8 +1,12 @@
 import requests
-from curl_cffi import requests as cffi_requests
 from bs4 import BeautifulSoup
 import os
 import sys
+import time
+
+# --- ÚJ IMPORTOK A BÖNGÉSZŐHÖZ ---
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
 
 # --- BEÁLLÍTÁSOK ---
 TOKEN = os.environ['TELEGRAM_TOKEN']
@@ -33,7 +37,7 @@ def save_seen_ad(ad_url):
     with open(SEEN_FILE, "a") as f:
         f.write(ad_url + "\n")
 
-# --- 1. HARDVERAPRÓ SCRAPER ---
+# --- 1. HARDVERAPRÓ SCRAPER (Marad a gyors requests megoldás) ---
 
 def scrape_hardverapro(seen_ads):
     print("--- HardverApró ellenőrzése ---")
@@ -84,44 +88,61 @@ def scrape_hardverapro(seen_ads):
     except Exception as e:
         print(f"HIBA a HardverAprónál: {e}")
 
-# --- 2. MENEMSZOL SCRAPER (DEBUG MÓD) ---
+# --- 2. MENEMSZOL SCRAPER (ÚJ: Real Browser / Selenium) ---
 
 def scrape_menemszol(seen_ads):
-    print("--- Menemszol.hu ellenőrzése (DEBUG) ---")
+    print("--- Menemszol.hu ellenőrzése (Böngészővel) ---")
     
     keywords = ['virus', 'access', 'elektron']
+    driver = None
     
     try:
-        # Frissebb Chrome álcát használunk (chrome120)
-        response = cffi_requests.get(URL_MSZ, impersonate="chrome120")
+        # 1. BÖNGÉSZŐ INDÍTÁSA
+        print("Chrome indítása...")
+        options = uc.ChromeOptions()
+        options.add_argument('--headless=new') # Háttérben fusson (ne nyisson ablakot)
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        options.add_argument('--window-size=1920,1080')
         
-        # 1. DIAGNOSZTIKA: Mit látunk?
-        soup = BeautifulSoup(response.text, 'html.parser')
+        driver = uc.Chrome(options=options)
+        
+        # 2. OLDAL BETÖLTÉSE
+        print("Oldal megnyitása...")
+        driver.get(URL_MSZ)
+        
+        # 3. VÁRAKOZÁS A CLOUDFLARE-RE (Nagyon fontos!)
+        print("Várakozás a Cloudflare átengedésre (15 mp)...")
+        time.sleep(15) 
+        
+        # 4. ADATKINYERÉS
+        page_source = driver.page_source
+        soup = BeautifulSoup(page_source, 'html.parser')
+        
+        # DEBUG: Cím kiírása
         page_title = soup.title.get_text().strip() if soup.title else "Nincs cím"
-        print(f"Látott oldal címe: {page_title}")
-        
-        if "Just a moment" in page_title or "Attention Required" in page_title:
-            print("⚠️ CLOUDFLARE BLOKKOLÁS (Captcha oldal)!")
-            return
+        print(f"Betöltött oldal címe: {page_title}")
 
-        # 2. DIAGNOSZTIKA: Találunk listaelemeket?
+        if "Just a moment" in page_title:
+             print("⚠️ MÉG MINDIG BLOKKOL (Növelni kell az időt vagy user-agentet cserélni).")
+             # Ha blokkol, lementjük a képernyőképet a GitHubra (opcionális debug)
+             # driver.save_screenshot("debug_error.png")
+
         ads = soup.find_all('li', class_='ipsDataItem')
-        print(f"Talált lista elemek száma: {len(ads)}")
-
+        print(f"Talált hirdetések száma: {len(ads)}")
+        
         new_count = 0
 
         for ad in ads:
             try:
                 title_element = ad.find('h4', class_='ipsDataItem_title') or ad.find('h3', class_='ipsDataItem_title')
                 
-                if not title_element:
-                    continue
+                if not title_element: continue
 
                 title = title_element.get_text(strip=True)
                 
                 link_element = title_element.find('a')
-                if not link_element:
-                    continue
+                if not link_element: continue
                     
                 full_link = link_element['href']
 
@@ -130,9 +151,7 @@ def scrape_menemszol(seen_ads):
                 if price_element:
                     price = price_element.get_text(strip=True)
 
-                # Ellenőrizzük, hogy a kulcsszó benne van-e
                 if not any(word in title.lower() for word in keywords):
-                    # print(f"  (Skipped: {title})") # Ha nagyon kell debug, ezt is bekapcsolhatod
                     continue
 
                 if full_link in seen_ads:
@@ -153,7 +172,15 @@ def scrape_menemszol(seen_ads):
         print(f"Menemszol vége. {new_count} új hirdetés.")
 
     except Exception as e:
-        print(f"HIBA a Menemszolnál: {e}")
+        print(f"HIBA a Menemszolnál (Selenium): {e}")
+    finally:
+        # Mindenképp zárjuk be a böngészőt, hogy ne ragadjon be a memória
+        if driver:
+            try:
+                driver.quit()
+                print("Böngésző bezárva.")
+            except:
+                pass
 
 # --- FŐ PROGRAM ---
 
