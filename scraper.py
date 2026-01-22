@@ -3,14 +3,15 @@ from bs4 import BeautifulSoup
 import os
 import sys
 import time
+import shutil
 
 # --- ÚJ IMPORTOK A BÖNGÉSZŐHÖZ ---
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 
 # --- BEÁLLÍTÁSOK ---
-TOKEN = os.environ['TELEGRAM_TOKEN']
-CHAT_ID = os.environ['TELEGRAM_CHAT_ID']
+TOKEN = os.environ.get('TELEGRAM_TOKEN')
+CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 SEEN_FILE = "seen_ads.txt"
 
 # URL-ek
@@ -20,6 +21,9 @@ URL_MSZ = "https://www.menemszol.hu/aprohirdetes/"
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
 
 def send_telegram(message):
+    if not TOKEN or not CHAT_ID:
+        print("Hiba: Nincs beállítva TELEGRAM_TOKEN vagy TELEGRAM_CHAT_ID")
+        return
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": message}
     try:
@@ -88,7 +92,7 @@ def scrape_hardverapro(seen_ads):
     except Exception as e:
         print(f"HIBA a HardverAprónál: {e}")
 
-# --- 2. MENEMSZOL SCRAPER (Selenium - Fényképezős Debug) ---
+# --- 2. MENEMSZOL SCRAPER (Selenium - Auto Verzió) ---
 
 def scrape_menemszol(seen_ads):
     print("--- Menemszol.hu ellenőrzése (Fényképezős Debug) ---")
@@ -97,6 +101,12 @@ def scrape_menemszol(seen_ads):
     driver = None
     
     try:
+        print("Chrome keresése...")
+        # Megkeressük a rendszerre telepített Chrome-ot (amit a setup-chrome action tett fel)
+        chrome_path = shutil.which("google-chrome") or shutil.which("chrome") or shutil.which("chromium")
+        
+        print(f"Chrome útvonal: {chrome_path}")
+        
         print("Chrome indítása...")
         options = uc.ChromeOptions()
         options.add_argument('--headless=new')
@@ -104,7 +114,11 @@ def scrape_menemszol(seen_ads):
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--window-size=1920,1080')
         
-        # Nem adunk meg verziót, hagyjuk hogy az uc intézze
+        # Ha megtaláltuk a Chrome-ot, megadjuk az útvonalat
+        if chrome_path:
+            options.binary_location = chrome_path
+
+        # Most nem adunk meg version_main-t, hagyjuk hogy automatikus legyen
         driver = uc.Chrome(options=options)
         
         print("Oldal megnyitása...")
@@ -126,7 +140,7 @@ def scrape_menemszol(seen_ads):
         print(f"Talált hirdetések száma: {count}")
 
         # Ha 0 hirdetés van, vagy gyanús az oldal, FÉNYKÉPEZÜNK
-        if count == 0 or "Just a moment" in page_title:
+        if count == 0 or "Just a moment" in page_title or "Attention Required" in page_title:
             print("⚠️ GYANÚS! Képernyőfotó készítése: debug_screenshot.png")
             driver.save_screenshot("debug_screenshot.png")
             with open("debug_source.html", "w", encoding="utf-8") as f:
