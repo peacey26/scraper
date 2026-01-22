@@ -14,11 +14,10 @@ CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 SEEN_FILE = "seen_ads.txt"
 KEYWORDS_FILE = "keywords.txt"
 
-# 🤫 CSENDES MÓD
-# Ha új kulcsszót adsz hozzá, állítsd ezt True-ra egy kör erejéig!
-# True = Elmenti a találatokat, de NEM küld Telegram üzenetet.
-# False = Normál működés, küld üzenetet.
-SILENT_MODE = False 
+# 🌊 AUTOMATA ÁRVÍZVÉDELEM
+# Ha egy kulcsszóra egyszerre ennél több találat van, azt "előzmény betöltésnek" vesszük.
+# Ilyenkor nem küld egyesével értesítést, csak egy összefoglalót.
+FLOOD_LIMIT = 3 
 
 # URL-ek
 URL_HA_SEARCH_BASE = "https://hardverapro.hu/aprok/keres.php?order=1&stext="
@@ -27,11 +26,6 @@ URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
 
 def send_telegram(message):
-    # Ha be van kapcsolva a Csendes Mód, akkor itt kilépünk küldés nélkül
-    if SILENT_MODE:
-        print("🤫 Csendes mód aktív: Üzenet kihagyva.")
-        return
-
     if not TOKEN or not CHAT_ID:
         print("Hiba: Nincs beállítva TELEGRAM_TOKEN vagy TELEGRAM_CHAT_ID")
         return
@@ -53,18 +47,8 @@ def save_seen_ad(ad_url):
         f.write(ad_url + "\n")
 
 def load_keywords_by_site():
-    """
-    Beolvassa a keywords.txt-t és szétválogatja a szavakat.
-    """
-    keywords = {
-        "hardverapro": [],
-        "menemszol": []
-    }
-    
-    defaults = {
-        "hardverapro": ["mac mini"],
-        "menemszol": ["elektron", "access", "virus", "focusrite"]
-    }
+    keywords = {"hardverapro": [], "menemszol": []}
+    defaults = {"hardverapro": ["mac mini"], "menemszol": ["elektron", "access", "virus", "focusrite"]}
 
     if not os.path.exists(KEYWORDS_FILE):
         print("⚠️ Nem található a keywords.txt, alapértelmezett szavakat használom.")
@@ -76,22 +60,18 @@ def load_keywords_by_site():
             for line in f:
                 line = line.strip()
                 if not line: continue
-                
                 if line.upper() == "[HARDVERAPRO]":
                     current_section = "hardverapro"
                     continue
                 elif line.upper() == "[MENEMSZOL]":
                     current_section = "menemszol"
                     continue
-                
                 if current_section in keywords:
                     keywords[current_section].append(line.lower())
         
         if not keywords["hardverapro"]: keywords["hardverapro"] = defaults["hardverapro"]
         if not keywords["menemszol"]: keywords["menemszol"] = defaults["menemszol"]
-            
         return keywords
-
     except Exception as e:
         print(f"Hiba a kulcsszavak olvasásakor: {e}")
         return defaults
@@ -109,16 +89,16 @@ def scrape_hardverapro(seen_ads, keywords):
     for keyword in keywords:
         search_term = f'"{keyword}"'
         print(f"🔎 Keresés erre: {search_term}...")
-        
         search_url = f"{URL_HA_SEARCH_BASE}{search_term}"
         
         try:
             response = requests.get(search_url, headers=ha_headers)
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
-            
             ads = soup.find_all('li', class_='media')
-            new_count = 0
+            
+            # --- GYŰJTÉS ---
+            batch_new_items = []
             
             for ad in ads:
                 title_div = ad.find('div', class_='uad-col-title')
@@ -129,28 +109,41 @@ def scrape_hardverapro(seen_ads, keywords):
                 title = link_tag.get_text().strip()
                 link = link_tag['href']
                 full_link = link if link.startswith("http") else f"https://hardverapro.hu{link}"
-                
                 price_div = ad.find('div', class_='uad-price')
                 price = price_div.get_text().strip() if price_div else "Nincs ár"
 
-                # Cím ellenőrzés
-                if keyword.lower() not in title.lower():
-                    continue
-
+                # Cím ellenőrzés (Szigorú szűrés)
+                if keyword.lower() not in title.lower(): continue
+                
                 if full_link in seen_ads: continue 
                 
-                print(f"Új HA találat: {title}")
-                msg = f"🍎 TALÁLAT (HardverApró - {keyword})!\n\n**{title}**\nÁr: {price}\n\nLink: {full_link}"
-                
-                # Itt hívjuk meg a küldést (ami ellenőrzi a SILENT_MODE-ot)
-                send_telegram(msg)
-                
-                # De a mentés MINDIG megtörténik!
-                save_seen_ad(full_link)
-                seen_ads.add(full_link)
-                new_count += 1
+                batch_new_items.append({
+                    "title": title,
+                    "price": price,
+                    "link": full_link
+                })
+
+            # --- DÖNTÉS ---
+            count = len(batch_new_items)
             
-            print(f"  -> {new_count} új találat ennél a szónál.")
+            if count == 0:
+                continue
+
+            if count > FLOOD_LIMIT:
+                print(f"🌊 FLOOD DETEKTÁLVA ({count} db)! Néma mentés...")
+                msg = f"ℹ️ **Új kulcsszó betanítva:** '{keyword}'\n\nTaláltam {count} db régi hirdetést a HardverAprón. Ezeket elmentettem, de nem küldöm el egyesével."
+                send_telegram(msg)
+                for item in batch_new_items:
+                    save_seen_ad(item['link'])
+                    seen_ads.add(item['link'])
+            else:
+                for item in batch_new_items:
+                    print(f"Új HA találat: {item['title']}")
+                    msg = f"🍎 TALÁLAT (HardverApró - {keyword})!\n\n**{item['title']}**\nÁr: {item['price']}\n\nLink: {item['link']}"
+                    send_telegram(msg)
+                    save_seen_ad(item['link'])
+                    seen_ads.add(item['link'])
+            
             time.sleep(2)
 
         except Exception as e:
@@ -160,9 +153,7 @@ def scrape_hardverapro(seen_ads, keywords):
 
 def scrape_menemszol(seen_ads, keywords):
     print("--- Menemszol.hu ellenőrzése ---")
-    
     page = None
-    
     try:
         print("Böngésző konfigurálása...")
         co = ChromiumOptions()
@@ -170,21 +161,17 @@ def scrape_menemszol(seen_ads, keywords):
         co.set_argument('--headless=new')
         co.set_argument('--disable-gpu')
         co.set_user_agent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36')
-
         chrome_path = shutil.which("google-chrome") or shutil.which("chrome") or shutil.which("chromium")
-        if chrome_path:
-             co.set_paths(browser_path=chrome_path)
+        if chrome_path: co.set_paths(browser_path=chrome_path)
 
         page = ChromiumPage(co)
         print(f"Link megnyitása: {URL_MSZ}")
         page.get(URL_MSZ)
         
-        # --- CLOUDFLARE ---
         if "Verify" in page.title or "Just a moment" in page.title:
-            print("⚠️ Cloudflare gyanú! Megoldás indítása...")
             try:
                 time.sleep(2) 
-                cf_box = page.ele('@id=challenge-stage', timeout=2)
+                cf_box = page.ele('@id=challenge-stage', timeout=2); 
                 if cf_box: cf_box.click() 
                 verify_text = page.ele('text:Verify you are human', timeout=2)
                 if verify_text: verify_text.click()
@@ -193,47 +180,68 @@ def scrape_menemszol(seen_ads, keywords):
 
         if "Just a moment" in page.title:
              print(f"❌ Cloudflare blokkol.")
+             return
+
+        print("✅ Sikeresen betöltve!")
+        soup = BeautifulSoup(page.html, 'html.parser')
+        all_links = soup.find_all('a', href=True)
+        
+        # --- GYŰJTÉS ---
+        batch_new_items = []
+
+        for link in all_links:
+            href = link['href']
+            text = link.get_text(" ", strip=True)
+            
+            if "/aprohirdetes/" not in href: continue
+            ignore_list = ["/category/", "/page/", "?sort", "&sort", "do=markRead", "/profile/"]
+            if any(x in href for x in ignore_list): continue
+            if not text or len(text) < 3: continue
+
+            # Kulcsszó keresés
+            found_kw = None
+            for kw in keywords:
+                if kw in text.lower():
+                    found_kw = kw
+                    break
+            
+            if not found_kw: continue
+            if href in seen_ads: continue
+            if any(item['link'] == href for item in batch_new_items): continue
+
+            batch_new_items.append({
+                "title": text,
+                "link": href,
+                "keyword": found_kw
+            })
+
+        # --- DÖNTÉS ---
+        count = len(batch_new_items)
+        print(f"  -> {count} db új találat az oldalon.")
+
+        if count > 5: # Menemszolon kicsit engedékenyebb a limit, mert egy oldalt nézünk
+             print(f"🌊 FLOOD DETEKTÁLVA ({count} db)!")
+             msg = f"ℹ️ **Menemszol importálás:**\n\nTaláltam {count} db olyan hirdetést, ami eddig nem volt meg. Ezeket némán elmentettem."
+             send_telegram(msg)
+             for item in batch_new_items:
+                 save_seen_ad(item['link'])
+                 seen_ads.add(item['link'])
         else:
-            print("✅ Sikeresen betöltve!")
-            
-            soup = BeautifulSoup(page.html, 'html.parser')
-            all_links = soup.find_all('a', href=True)
-            print(f"  -> Az oldalon összesen {len(all_links)} db link van.")
-            
-            new_count = 0
-            
-            for link in all_links:
-                href = link['href']
-                text = link.get_text(" ", strip=True)
-                
-                if "/aprohirdetes/" not in href: continue
-                ignore_list = ["/category/", "/page/", "?sort", "&sort", "do=markRead", "/profile/"]
-                if any(x in href for x in ignore_list): continue
-                if not text or len(text) < 3: continue
-
-                if not any(word in text.lower() for word in keywords): continue
-                if href in seen_ads: continue
-
-                print(f"Új Menemszol találat: {text}")
-                msg = f"🎹 TALÁLAT (Menemszol)!\n\n**{text}**\n\nLink: {href}"
-                
+             for item in batch_new_items:
+                print(f"Új Menemszol találat: {item['title']}")
+                msg = f"🎹 TALÁLAT (Menemszol)!\n\n**{item['title']}**\n\nLink: {item['link']}"
                 send_telegram(msg)
-                
-                save_seen_ad(href)
-                seen_ads.add(href)
-                new_count += 1
-            
-            print(f"Menemszol vége. {new_count} új hirdetés.")
+                save_seen_ad(item['link'])
+                seen_ads.add(item['link'])
+
+        print(f"Menemszol vége.")
 
     except Exception as e:
         print(f"KRITIKUS HIBA a Menemszolnál: {e}")
     finally:
         if page:
-            try:
-                page.quit()
-                print("Böngésző bezárva.")
-            except:
-                pass
+            try: page.quit()
+            except: pass
 
 # --- FŐ PROGRAM ---
 
