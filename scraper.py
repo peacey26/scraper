@@ -15,9 +15,7 @@ SEEN_FILE = "seen_ads.txt"
 KEYWORDS_FILE = "keywords.txt"
 
 # URL-ek
-# HardverApró kereső alap link
 URL_HA_SEARCH_BASE = "https://hardverapro.hu/aprok/keres.php?order=1&stext="
-# Menemszol lista oldal
 URL_MSZ = "https://www.menemszol.hu/aprohirdetes/page/1"
 
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
@@ -87,10 +85,10 @@ def load_keywords_by_site():
         print(f"Hiba a kulcsszavak olvasásakor: {e}")
         return defaults
 
-# --- 1. HARDVERAPRÓ SCRAPER (PONTOS KERESÉS MÓD) ---
+# --- 1. HARDVERAPRÓ SCRAPER (CÍM ELLENŐRZÉSSEL) ---
 
 def scrape_hardverapro(seen_ads, keywords):
-    print("--- HardverApró ellenőrzése (Pontos Keresés) ---")
+    print("--- HardverApró ellenőrzése (Cím Szűrővel) ---")
     
     ha_headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -98,8 +96,7 @@ def scrape_hardverapro(seen_ads, keywords):
     }
 
     for keyword in keywords:
-        # ITT A TRÜKK: Idézőjelbe tesszük a kifejezést!
-        # Így a HardverApró pontos kifejezésként keresi.
+        # A keresőnek idézőjelben küldjük, hogy pontos legyen
         search_term = f'"{keyword}"'
         print(f"🔎 Keresés erre: {search_term}...")
         
@@ -125,6 +122,12 @@ def scrape_hardverapro(seen_ads, keywords):
                 
                 price_div = ad.find('div', class_='uad-price')
                 price = price_div.get_text().strip() if price_div else "Nincs ár"
+
+                # --- ÚJ SZIGORÍTÁS: CÍM ELLENŐRZÉS ---
+                # Hiába dobta ki a kereső, ha a kulcsszó nincs benne a CÍMBEN, eldobjuk.
+                if keyword.lower() not in title.lower():
+                    # print(f"  -> Kihagyva (Nincs a címben): {title}") # Debug ha kellene
+                    continue
 
                 if full_link in seen_ads: continue 
                 
@@ -198,7 +201,7 @@ def scrape_menemszol(seen_ads, keywords):
                 if any(x in href for x in ignore_list): continue
                 if not text or len(text) < 3: continue
 
-                # A Menemszolnál ez a sor garantálja a pontos kifejezést:
+                # Menemszolnál is szigorúan címre szűrünk
                 if not any(word in text.lower() for word in keywords): continue
 
                 if href in seen_ads: continue
