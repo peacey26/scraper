@@ -1,4 +1,5 @@
 import requests
+import cloudscraper # EZ AZ ÚJ KÖNYVTÁR
 from bs4 import BeautifulSoup
 import os
 import sys
@@ -12,11 +13,14 @@ SEEN_FILE = "seen_ads.txt"
 URL_HA = "https://hardverapro.hu/aprok/pc_szerver/apple_mac_imac/mac_mini/index.html"
 URL_MSZ = "https://www.menemszol.hu/aprohirdetes/"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Referer": "https://hardverapro.hu/"
-}
+# Létrehozunk egy "álcázott" böngészőt
+scraper = cloudscraper.create_scraper(
+    browser={
+        'browser': 'chrome',
+        'platform': 'windows',
+        'desktop': True
+    }
+)
 
 # --- KÖZÖS SEGÉDFÜGGVÉNYEK ---
 
@@ -44,7 +48,8 @@ def scrape_hardverapro(seen_ads):
     print("--- HardverApró ellenőrzése ---")
     
     try:
-        response = requests.get(URL_HA, headers=HEADERS)
+        # ITT CSERÉLTÜK LE A requests.get-et scraper.get-re
+        response = scraper.get(URL_HA)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -93,13 +98,17 @@ def scrape_hardverapro(seen_ads):
 def scrape_menemszol(seen_ads):
     print("--- Menemszol.hu ellenőrzése ---")
     
-    # ITT A MÓDOSÍTÁS: Bekerült az 'elektron'
     keywords = ['virus', 'access', 'elektron']
     
     try:
-        response = requests.get(URL_MSZ, headers=HEADERS)
+        # ITT IS scraper.get-et HASZNÁLUNK (ez oldja meg a 403-at)
+        response = scraper.get(URL_MSZ)
+        
         if response.status_code != 200:
             print(f"Hiba a Menemszol lekérésekor: {response.status_code}")
+            # Ha még így is 403, kiírjuk a választ, hátha segít debugolni
+            if response.status_code == 403:
+                print("A Cloudflare még mindig blokkol, de a cloudscrapernek át kellett volna jutnia.")
             return
 
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -127,11 +136,9 @@ def scrape_menemszol(seen_ads):
                 if price_element:
                     price = price_element.get_text(strip=True)
 
-                # 1. SZŰRÉS: Kulcsszavak
                 if not any(word in title.lower() for word in keywords):
                     continue
 
-                # 2. SZŰRÉS: Duplikáció
                 if full_link in seen_ads:
                     continue
 
