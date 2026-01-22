@@ -13,7 +13,11 @@ teo-5
 JP-8080
 JP-8000
 Nord Lead
+Nord Rack
 Aira J-6
 Roland J-6
 KH-120
 KH120
+8040
+8050
+7060
