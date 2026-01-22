@@ -11,5 +11,5 @@ novation peak
 oberheim teo-5
 teo-5
 JP-8080
-JP-800
+JP-8000
 Nord Lead
