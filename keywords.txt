@@ -3,7 +3,7 @@
 # videokártya -- https://hardverapro.hu/aprok/pc_szerver/videokartya/index.html
 
 [HARDVERAPRO]
-mac miniű
+mac mini
 mac pro 
 
 [MENEMSZOL]
